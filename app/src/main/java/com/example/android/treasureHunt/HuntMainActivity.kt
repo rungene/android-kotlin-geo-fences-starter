@@ -60,7 +60,14 @@ class HuntMainActivity : AppCompatActivity() {
     private lateinit var geofencingClient: GeofencingClient
     private lateinit var viewModel: GeofenceViewModel
 
-    // TODO: Step 2 add in variable to check if device is running Q or later
+    /*The difference in location permissions only affects Android Q or later, so the background
+    location permission is only needed for those devices.*/
+
+    // Step 2 add in variable to check if device is running Q or later
+    private val runningQOrLater = android.os.Build.VERSION.SDK_INT >=
+            android.os.Build.VERSION_CODES.Q
+
+
 
     // A PendingIntent for the Broadcast Receiver that handles geofence transitions.
     // TODO: Step 8 add in a pending intent
@@ -119,7 +126,49 @@ class HuntMainActivity : AppCompatActivity() {
         permissions: Array<String>,
         grantResults: IntArray
     ) {
-        // TODO: Step 5 add code to handle the result of the user's permission
+        // Step 5 add code to handle the result of the user's permission
+        Log.d(TAG, "onRequestPermissionResult")
+    /*    Permissions can be denied in a few ways:
+
+        If the grantResults array is empty, then the interaction was interrupted and the
+        permission request was cancelled.
+
+        If the grantResults array’s value at the LOCATION_PERMISSION_INDEX has a PERMISSION_DENIED
+        it means that the user denied foreground permissions.
+
+        If the request code equals REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE and
+        the BACKGROUND_LOCATION_PERMISSION_INDEX is denied it means that the device is running API
+        29 or above and that background permissions were denied.*/
+
+        if (
+            grantResults.isEmpty() ||
+            grantResults[LOCATION_PERMISSION_INDEX] == PackageManager.PERMISSION_DENIED ||
+            (requestCode == REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE &&
+                    grantResults[BACKGROUND_LOCATION_PERMISSION_INDEX] ==
+                    PackageManager.PERMISSION_DENIED))
+        {
+         /*   This app has very little use when permissions are not granted so present a snackbar
+            explaining that the user needs location permissions in order to play.*/
+            Snackbar.make(
+                binding.activityMapsMain,
+                R.string.permission_denied_explanation,
+                Snackbar.LENGTH_INDEFINITE
+            )
+                .setAction(R.string.settings) {
+                    startActivity(Intent().apply {
+                        action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                        data = Uri.fromParts("package", BuildConfig.APPLICATION_ID, null)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    })
+                }.show()
+        }
+       /* if not, permissions have been granted! Call the checkDeviceLocationSettingsAndStartGeofence()
+        method!*/
+        else {
+            checkDeviceLocationSettingsAndStartGeofence()
+        }
+
+
     }
 
     /**
@@ -158,9 +207,28 @@ class HuntMainActivity : AppCompatActivity() {
      */
     @TargetApi(29)
     private fun foregroundAndBackgroundLocationPermissionApproved(): Boolean {
-        // TODO: Step 3 replace this with code to check that the foreground and background
+        //  Step 3 code to check that the foreground and background
         //  permissions were approved
-        return false
+        //First, check if the ACCESS_FINE_LOCATION permission is granted.
+        val foregroundLocationApproved = (
+                PackageManager.PERMISSION_GRANTED ==
+                        ActivityCompat.checkSelfPermission(this,
+                            Manifest.permission.ACCESS_FINE_LOCATION))
+      /*  If the device is running Q or higher, check that the ACCESS_BACKGROUND_LOCATION permission
+        is granted. Return true if the device is running lower than Q where you
+        don't need a permission to access location in the background.*/
+        val backgroundPermissionApproved =
+            if (runningQOrLater) {
+                PackageManager.PERMISSION_GRANTED ==
+                        ActivityCompat.checkSelfPermission(
+                            this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                        )
+            } else {
+                true
+            }
+        //Return true if the permissions are granted and false if not.
+        return foregroundLocationApproved && backgroundPermissionApproved
+
     }
 
     /*
@@ -168,7 +236,36 @@ class HuntMainActivity : AppCompatActivity() {
      */
     @TargetApi(29 )
     private fun requestForegroundAndBackgroundLocationPermissions() {
-        // TODO: Step 4 add code to request foreground and background permissions
+        //  Step 4 add code to request foreground and background permissions
+      /*  If the permissions have already been approved, you don’t need to ask again.
+        Return out of the method.*/
+        if (foregroundAndBackgroundLocationPermissionApproved())
+            return
+       /* The permissionsArray contains the permissions that are going to be requested.
+        Initially, add ACCESS_FINE_LOCATION since that will be needed on all API levels.*/
+        var permissionsArray = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+
+        /*Add a when statement to check the version running and assign result code to
+                REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE if the device is
+        running Q or later and REQUEST_FOREGROUND_ONLY_PERMISSIONS_REQUEST_CODE if not*/
+        val resultCode = when {
+            runningQOrLater -> {
+                permissionsArray += Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                REQUEST_FOREGROUND_AND_BACKGROUND_PERMISSION_RESULT_CODE
+            }
+            else -> REQUEST_FOREGROUND_ONLY_PERMISSIONS_REQUEST_CODE
+        }
+
+        Log.d(TAG, "Request foreground only location permission")
+       // Request permissions passing in the current activity, the permissions array and the result code
+        ActivityCompat.requestPermissions(
+            this@HuntMainActivity,
+            permissionsArray,
+            resultCode
+        )
+
+
+
     }
 
     /*
